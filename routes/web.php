@@ -72,19 +72,4 @@ Route::middleware('auth')->group(function () {
     Route::put('pengguna/{user}/password', [UserController::class, 'updatePassword'])
         ->name('pengguna.password');
 
-    Route::get('/tes-db', function () {
-    $t = microtime(true);
-    DB::connection()->getPdo();
-    $konek = round((microtime(true) - $t) * 1000);
-
-    $t = microtime(true);
-    DB::select('select 1');
-    $q1 = round((microtime(true) - $t) * 1000);
-
-    $t = microtime(true);
-    DB::select('select 1');
-    $q2 = round((microtime(true) - $t) * 1000);
-
-    return compact('konek', 'q1', 'q2'); // satuan ms
-});
 });
