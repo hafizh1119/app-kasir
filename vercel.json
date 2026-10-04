@@ -2,9 +2,13 @@
   "version": 2,
   "regions": ["sin1"],
   "functions": {
-    "api/index.php": { "runtime": "vercel-php@0.7.3" }
+    "api/index.php": {
+      "runtime": "vercel-php@0.7.3",
+      "includeFiles": "public/build/**"
+    }
   },
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index.php" }
+  "routes": [
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/api/index.php" }
   ]
 }
