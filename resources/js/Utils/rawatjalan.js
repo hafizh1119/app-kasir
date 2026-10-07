@@ -1,65 +1,57 @@
 import * as XLSX from 'xlsx-js-style';
+import { toYMD, formatTanggalID } from './igd';
 
 // ─── Konfigurasi ──────────────────────────────────────────────────────────────
-export const JUDUL_LAPORAN = 'DATA KUNJUNGAN PASIEN IGD';
-export const FILE_PREFIX = 'igd';
+export const JUDUL_LAPORAN = 'DATA KUNJUNGAN PASIEN RAWAT JALAN';
+export const FILE_PREFIX = 'rawat-jalan';
 const BENDAHARA_NAMA = 'Kadiyono';
 const BENDAHARA_NIP = 'NIP. 19730519 201001 1 001';
 
+// Urutan kolom biaya (sama dengan nama kolom di database)
 export const KEYS = [
-  'jasa_sarana', 'dokter_umum', 'dokter_spesialis', 'konsul',
-  'askep', 'pnm', 'tmno', 'kep', 'tmo', 'persal',
+  'admisi',
+  'visit_umum', 'visit_spesialis',
+  'konsul_dokter', 'konsul_gizi',
+  'tmno', 'kep', 'tmo',
   'lab', 'ro', 'usg',
-  'o2', 'ipj', 'ambulan', 'akomodasi', 'obat',
+  'obat',
 ];
 
+// Status pembayaran (dipakai kartu di Index, modal StatusPembayaran, dan Excel)
+export const STATUS_OPTIONS = [
+  { key: 'umum_h2h', label: 'Umum H2H', desc: 'Pembayaran umum via host to host' },
+  { key: 'umum_cash', label: 'Umum Cash', desc: 'Pembayaran umum tunai' },
+  { key: 'bpjs', label: 'BPJS', desc: 'Pasien peserta BPJS' },
+];
+export const DEFAULT_STATUS = 'umum_h2h';
+
 // Urutan & label subtotal per shift (ubah label di sini jika ingin "SORE")
-const SHIFT_GROUPS = [
+export const SHIFT_GROUPS = [
   { key: 'pagi', label: 'JUMLAH PENDAPATAN PAGI' },
   { key: 'siang', label: 'JUMLAH PENDAPATAN SIANG' },
   { key: 'malam', label: 'JUMLAH PENDAPATAN MALAM' },
 ];
 
-const sumRows = (list) => {
+export const sumRows = (list) => {
   const t = {};
   KEYS.forEach((k) => { t[k] = list.reduce((s, r) => s + (r[k] || 0), 0); });
   t.jumlah = list.reduce((s, r) => s + (r.jumlah || 0), 0);
   return t;
 };
 
-// ─── Helper tanggal (waktu LOKAL) ─────────────────────────────────────────────
-export const toYMD = (d) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-export const formatTanggalID = (ymd) => {
-  const [y, m, d] = ymd.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-};
-
-export function getWeekRange(ymd) {
-  const [y, m, d] = ymd.split('-').map(Number);
-  const day = new Date(y, m - 1, d).getDay();
-  const mon = new Date(y, m - 1, d - (day === 0 ? 6 : day - 1));
-  const sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6);
-  return { start: toYMD(mon), end: toYMD(sun) };
-}
-
-export function getMonthRange(ymd) {
-  const [y, m] = ymd.split('-').map(Number);
-  return { start: toYMD(new Date(y, m - 1, 1)), end: toYMD(new Date(y, m, 0)) };
-}
-
 // ─── Export Excel ─────────────────────────────────────────────────────────────
-// rows: [{ no_rm, nama, petugas, nip, shift, jumlah, ...KEYS }]
-export function exportIgd({ rows, totals, rangeStart, rangeEnd, shift }) {
+// rows: [{ no_rm, nama, poliklinik, petugas, nip, shift, jumlah, ...KEYS }]
+export function exportRawatJalan({ rows, totals, rangeStart, rangeEnd, shift, status = DEFAULT_STATUS }) {
   if (!rows.length) return;
 
-  const TOTAL_COLS = 22;
+  const statusText = (STATUS_OPTIONS.find((s) => s.key === status)?.label ?? '').toUpperCase();
+
+  // Kolom: NO | NO RM | NAMA | POLIKLINIK | ADMISI | VISIT DR(2) | KONSUL(2) | TINDAKAN(3) | PENUNJANG(3) | OBAT | JUMLAH
+  const TOTAL_COLS = 17;
   const LAST_COL = TOTAL_COLS - 1;
-  // Posisi tanda tangan (digeser ke tengah). Ubah angka jika masih kurang pas,
-  // mis. kiri 4–8 dan kanan 13–17.
-  const SIG_LEFT_START = 3, SIG_LEFT_END = 7;
-  const SIG_RIGHT_START = 14, SIG_RIGHT_END = 18;
+  // Posisi tanda tangan (digeser ke tengah)
+  const SIG_LEFT_START = 2, SIG_LEFT_END = 5;
+  const SIG_RIGHT_START = 10, SIG_RIGHT_END = 14;
   const blank = () => Array(TOTAL_COLS).fill('');
 
   const pendapatan =
@@ -67,7 +59,7 @@ export function exportIgd({ rows, totals, rangeStart, rangeEnd, shift }) {
       ? `PENDAPATAN ${formatTanggalID(rangeStart).toUpperCase()}`
       : `PENDAPATAN ${formatTanggalID(rangeStart).toUpperCase()} S/D ${formatTanggalID(rangeEnd).toUpperCase()}`;
 
-  const titleRows = [JUDUL_LAPORAN, 'STATUS PEMBAYARAN UMUM H2H', pendapatan, 'RSUD AJIBARANG'].map((t) => {
+  const titleRows = [JUDUL_LAPORAN, `STATUS PEMBAYARAN ${statusText}`, pendapatan, 'RSUD AJIBARANG'].map((t) => {
     const r = blank();
     r[0] = t;
     return r;
@@ -76,11 +68,11 @@ export function exportIgd({ rows, totals, rangeStart, rangeEnd, shift }) {
   const head1 = blank();
   const head2 = blank();
   Object.entries({
-    0: 'NO', 1: 'NO RM', 2: 'NAMA', 3: 'JASA SARANA', 4: 'PX DOKTER', 6: 'TINDAKAN',
-    13: 'PENUNJANG', 16: 'O2', 17: 'IPJ', 18: 'AMBLN', 19: 'AKOMODASI', 20: 'OBAT', 21: 'JUMLAH',
+    0: 'NO', 1: 'NO RM', 2: 'NAMA', 3: 'POLIKLINIK', 4: 'ADMISI', 5: 'VISIT DR',
+    7: 'KONSUL', 9: 'TINDAKAN', 12: 'PENUNJANG', 15: 'OBAT', 16: 'JUMLAH',
   }).forEach(([c, v]) => { head1[c] = v; });
-  ['UMUM', 'SPESIALIS', 'KONSUL', 'ASKEP', 'PNM', 'TMNO', 'KEP', 'TMO', 'PERSAL', 'LAB', 'RO', 'USG']
-    .forEach((h, i) => { head2[4 + i] = h; });
+  ['UMUM', 'SPESIALIS', 'DOKTER', 'GIZI', 'TMNO', 'KEP', 'TMO', 'LAB', 'RO', 'USG']
+    .forEach((h, i) => { head2[5 + i] = h; });
 
   // Body per shift: data (nomor mulai dari 1 di tiap shift) + baris subtotal
   const body = [];
@@ -89,23 +81,23 @@ export function exportIgd({ rows, totals, rangeStart, rangeEnd, shift }) {
     const list = rows.filter((r) => r.shift === g.key);
 
     list.forEach((r, i) => {
-      body.push([i + 1, r.no_rm, r.nama, ...KEYS.map((k) => r[k] || ''), r.jumlah]);
+      body.push([i + 1, r.no_rm, r.nama, r.poliklinik, ...KEYS.map((k) => r[k] || ''), r.jumlah]);
       bodyType.push('data');
     });
 
     const t = sumRows(list);
     const sub = blank();
     sub[0] = `${g.label} (${list.length} pasien)`;
-    KEYS.forEach((k, i) => { sub[3 + i] = t[k] || '-'; });
-    sub[21] = t.jumlah || '-';
+    KEYS.forEach((k, i) => { sub[4 + i] = t[k] || '-'; });
+    sub[LAST_COL] = t.jumlah || '-';
     body.push(sub);
     bodyType.push('sub');
   });
 
   const totalRow = blank();
   totalRow[0] = `JUMLAH PAGI, SIANG DAN MALAM (${rows.length} pasien)`;
-  KEYS.forEach((k, i) => { totalRow[3 + i] = totals[k] || ''; });
-  totalRow[21] = totals.jumlah;
+  KEYS.forEach((k, i) => { totalRow[4 + i] = totals[k] || ''; });
+  totalRow[LAST_COL] = totals.jumlah;
 
   // Tanda tangan: kasir = petugas pada data hasil filter
   const kasirMap = new Map(rows.map((r) => [r.petugas, r.nip]));
@@ -132,14 +124,15 @@ export function exportIgd({ rows, totals, rangeStart, rangeEnd, shift }) {
 
   const merges = [];
   titleRows.forEach((_, i) => merges.push({ s: { r: i, c: 0 }, e: { r: i, c: LAST_COL } }));
-  [0, 1, 2, 3, 16, 17, 18, 19, 20, 21].forEach((c) => merges.push({ s: { r: R_H1, c }, e: { r: R_H2, c } }));
-  merges.push({ s: { r: R_H1, c: 4 }, e: { r: R_H1, c: 5 } });
-  merges.push({ s: { r: R_H1, c: 6 }, e: { r: R_H1, c: 12 } });
-  merges.push({ s: { r: R_H1, c: 13 }, e: { r: R_H1, c: 15 } });
+  [0, 1, 2, 3, 4, 15, 16].forEach((c) => merges.push({ s: { r: R_H1, c }, e: { r: R_H2, c } }));
+  merges.push({ s: { r: R_H1, c: 5 }, e: { r: R_H1, c: 6 } });    // VISIT DR
+  merges.push({ s: { r: R_H1, c: 7 }, e: { r: R_H1, c: 8 } });    // KONSUL
+  merges.push({ s: { r: R_H1, c: 9 }, e: { r: R_H1, c: 11 } });   // TINDAKAN
+  merges.push({ s: { r: R_H1, c: 12 }, e: { r: R_H1, c: 14 } });  // PENUNJANG
   bodyType.forEach((type, i) => {
-    if (type === 'sub') merges.push({ s: { r: R_BODY + i, c: 0 }, e: { r: R_BODY + i, c: 2 } });
+    if (type === 'sub') merges.push({ s: { r: R_BODY + i, c: 0 }, e: { r: R_BODY + i, c: 3 } });
   });
-  merges.push({ s: { r: R_TOTAL, c: 0 }, e: { r: R_TOTAL, c: 2 } });
+  merges.push({ s: { r: R_TOTAL, c: 0 }, e: { r: R_TOTAL, c: 3 } });
   for (let i = 0; i < 6; i++) {
     const r = R_SIG + i;
     merges.push({ s: { r, c: SIG_LEFT_START }, e: { r, c: SIG_LEFT_END } });
@@ -152,7 +145,7 @@ export function exportIgd({ rows, totals, rangeStart, rangeEnd, shift }) {
   const al = (h) => ({ horizontal: h, vertical: 'center' });
   const solid = (rgb) => ({ patternType: 'solid', fgColor: { rgb } });
 
-  // Warna (header dibuat lebih terang)
+  // Warna (header terang)
   const FILL_SUB = solid('E2E8F0');          // subtotal tiap shift (abu-abu)
   const FILL_HEAD = solid('BFDBFE');         // header tabel (biru muda)
   const FILL_JUMLAH_HEAD = solid('93C5FD');  // header kolom JUMLAH (biru sedang)
@@ -194,9 +187,9 @@ export function exportIgd({ rows, totals, rangeStart, rangeEnd, shift }) {
     const isSub = bodyType[i] === 'sub';
     for (let c = 0; c < TOTAL_COLS; c++) {
       if (isSub) {
-        if (c <= 2) paint(R_BODY + i, c, STYLE.subCenter);
+        if (c <= 3) paint(R_BODY + i, c, STYLE.subCenter);
         else paint(R_BODY + i, c, STYLE.subRight, '#,##0');
-      } else if (c === 2) paint(R_BODY + i, c, STYLE.left);
+      } else if (c === 2 || c === 3) paint(R_BODY + i, c, STYLE.left);
       else if (c <= 1) paint(R_BODY + i, c, STYLE.center);
       else if (c === LAST_COL) paint(R_BODY + i, c, STYLE.rightJumlah, '#,##0');
       else paint(R_BODY + i, c, STYLE.right, '#,##0');
@@ -204,32 +197,32 @@ export function exportIgd({ rows, totals, rangeStart, rangeEnd, shift }) {
   }
 
   for (let c = 0; c < TOTAL_COLS; c++) {
-    if (c <= 2) paint(R_TOTAL, c, STYLE.totalCenter);
+    if (c <= 3) paint(R_TOTAL, c, STYLE.totalCenter);
     else if (c === LAST_COL) paint(R_TOTAL, c, STYLE.totalJumlah, '#,##0');
     else paint(R_TOTAL, c, STYLE.totalRight, '#,##0');
   }
 
   for (let i = 0; i < 6; i++) for (let c = 0; c < TOTAL_COLS; c++) paint(R_SIG + i, c, STYLE.sig);
 
-  ws['!cols'] = [{ wch: 5 }, { wch: 10 }, { wch: 28 }, { wch: 12 }, ...Array(17).fill({ wch: 11 }), { wch: 13 }];
+  ws['!cols'] = [{ wch: 5 }, { wch: 10 }, { wch: 28 }, { wch: 16 }, ...Array(12).fill({ wch: 11 }), { wch: 13 }];
 
   // Kertas F4 (Folio 215 x 330 mm) landscape, muat 1 halaman lebar
   ws['!pageSetup'] = {
-    paperSize: 14,        // kode Excel untuk Folio/F4
+    paperSize: 14,
     orientation: 'landscape',
     fitToWidth: 1,
-    fitToHeight: 0,       // tinggi bebas, lanjut otomatis ke halaman berikutnya
+    fitToHeight: 0,
     scale: 100,
   };
   ws['!sheetPr'] = { pageSetUpPr: { fitToPage: true } };
   ws['!margins'] = { left: 0.3, right: 0.3, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 };
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'IGD');
+  XLSX.utils.book_append_sheet(wb, ws, 'Rawat Jalan');
   XLSX.writeFile(
     wb,
     rangeStart === rangeEnd
-      ? `${FILE_PREFIX}_${rangeStart}.xlsx`
-      : `${FILE_PREFIX}_${rangeStart}_sd_${rangeEnd}.xlsx`
+      ? `${FILE_PREFIX}_${status}_${rangeStart}.xlsx`
+      : `${FILE_PREFIX}_${status}_${rangeStart}_sd_${rangeEnd}.xlsx`
   );
 }

@@ -109,7 +109,7 @@ function RupiahInput({ label, name, value, onChange, hint, error }) {
  * - submitLabel: teks tombol simpan
  */
 export default function RawatJalanForm({
-  kunjungan, poliklinik = [], method, url, crumb, submitLabel,
+  kunjungan, poliklinik = [], status, method, url, crumb, submitLabel,
 }) {
   const k = kunjungan?.id ? kunjungan : null;
 
@@ -119,6 +119,7 @@ export default function RawatJalanForm({
     poliklinik_id: k?.poliklinik_id ?? '',
     tanggal_pelayanan: String(k?.tanggal_pelayanan ?? toISO(new Date())).slice(0, 10),
     shift: k?.shift ?? 'pagi',
+    status_pembayaran: k?.status_pembayaran ?? status ?? 'umum_h2h',
     ...Object.fromEntries(
       BIAYA.map((b) => [b, k ? fromDb(k[b]) : b === 'admisi' ? 42500 : 0])
     ),

@@ -23,13 +23,12 @@ class IgdController extends Controller
 
     public function index(Request $request)
     {
-        // Default: bulan ini (sama dengan filter awal di halaman)
-        $awal  = $request->tanggal_awal  ?: now()->startOfMonth()->toDateString();
-        $akhir = $request->tanggal_akhir ?: now()->endOfMonth()->toDateString();
+        // Default: hari ini (sama dengan filter awal di halaman)
+        $awal  = $request->tanggal_awal  ?: now()->toDateString();
+        $akhir = $request->tanggal_akhir ?: now()->toDateString();
 
         $data = KunjunganIgd::with(['pasien:id,no_rm,nama', 'user:id,username,nip'])
             ->whereBetween('tanggal_pelayanan', [$awal, $akhir])
-            ->when($request->shift, fn ($q, $v) => $q->where('shift', $v))
             ->when($request->user_id, fn ($q, $v) => $q->where('user_id', $v))
             ->orderByDesc('tanggal_pelayanan')->orderByDesc('id')
             ->get();

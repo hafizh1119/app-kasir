@@ -28,7 +28,12 @@ const MENU = [
         icon: User,
         submenu: [
           { label: 'Semua Data', href: '/rawat-jalan' },
-          { label: 'Tambah Transaksi', href: '/rawat-jalan/create' },
+          {
+            label: 'Tambah Transaksi',
+            href: '/rawat-jalan?tambah=1',
+            // Halaman form create juga mengaktifkan menu ini
+            also: ['/rawat-jalan/create'],
+          },
         ],
       },
       {
@@ -66,14 +71,40 @@ const MENU = [
   },
 ];
 
-// Buang query string & trailing slash
-const cleanUrl = (u) => u.split('?')[0].replace(/\/$/, '');
+// Pecah URL jadi path (tanpa trailing slash) + query params
+const parseUrl = (u) => {
+  const [path, qs = ''] = u.split('?');
+  return {
+    path: path.replace(/\/$/, '') || '/',
+    params: new URLSearchParams(qs),
+  };
+};
 
-// Cocok jika sama persis atau URL berada di bawah href (mis. /rawat-inap/1/edit)
-const matches = (url, href) => {
-  const u = cleanUrl(url);
-  const h = cleanUrl(href);
-  return u === h || u.startsWith(h + '/');
+// Cocok jika path sama / berada di bawah pola DAN semua query milik pola
+// ada di URL saat ini
+const matches = (url, pattern) => {
+  const u = parseUrl(url);
+  const h = parseUrl(pattern);
+  const pathOk = u.path === h.path || u.path.startsWith(h.path + '/');
+  if (!pathOk) return false;
+  for (const [k, v] of h.params) {
+    if (u.params.get(k) !== v) return false;
+  }
+  return true;
+};
+
+// Kespesifikan pola: jumlah query lebih diutamakan, lalu panjang path
+const specificity = (pattern) => {
+  const h = parseUrl(pattern);
+  return [...h.params].length * 1000 + h.path.length;
+};
+
+// Skor terbaik sebuah item (href + also) terhadap URL; -1 jika tidak cocok
+const matchScore = (url, item) => {
+  const patterns = [item.href, ...(item.also ?? [])];
+  return patterns
+    .filter((p) => matches(url, p))
+    .reduce((best, p) => Math.max(best, specificity(p)), -1);
 };
 
 // Role bisa berupa string ("kepala_kasir") atau relasi ({ nama / name })
@@ -89,10 +120,11 @@ const formatRole = (role) => {
 function MenuItem({ item, currentUrl, collapsed, onExpand }) {
   const { icon: Icon, label, href, submenu } = item;
 
-  // Submenu aktif = yang href-nya cocok DAN paling panjang (paling spesifik)
+  // Submenu aktif = skor cocok tertinggi (paling spesifik)
   const activeChildHref = submenu
-    ?.filter((s) => matches(currentUrl, s.href))
-    .sort((a, b) => b.href.length - a.href.length)[0]?.href;
+    ?.map((s) => ({ href: s.href, score: matchScore(currentUrl, s) }))
+    .filter((s) => s.score >= 0)
+    .sort((a, b) => b.score - a.score)[0]?.href;
 
   const isActive = href && matches(currentUrl, href);
   const isParentActive = !!activeChildHref;
@@ -213,7 +245,6 @@ export default function Sidebar({ collapsed = false, onExpand }) {
           <div key={i} className="flex flex-col gap-0.5">
             {group.section &&
               (collapsed ? (
-                // Saat mengecil: judul section diganti garis pemisah tipis
                 <div className="h-px bg-white/10 mx-2 mb-2" />
               ) : (
                 <div className="text-[#62779E] text-[10px] font-bold tracking-widest uppercase px-3 mb-1 whitespace-nowrap">

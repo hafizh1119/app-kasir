@@ -21,13 +21,16 @@ class RawatJalanController extends Controller
         'tmno', 'kep', 'tmo', 'lab', 'ro', 'usg', 'obat',
     ];
 
+    private const STATUS = ['umum_h2h', 'umum_cash', 'bpjs'];
+
     public function index(Request $request)
     {
         // Default: bulan ini (sama dengan filter awal di halaman)
-        $awal  = $request->tanggal_awal  ?: now()->startOfMonth()->toDateString();
-        $akhir = $request->tanggal_akhir ?: now()->endOfMonth()->toDateString();
-
+        $awal  = $request->tanggal_awal  ?: now()->toDateString();
+        $akhir = $request->tanggal_akhir ?: now()->toDateString();
+        $status = in_array($request->status, self::STATUS) ? $request->status : 'umum_h2h';
         $filter = fn ($q) => $q
+            ->where('status_pembayaran', $status)
             ->whereBetween('tanggal_pelayanan', [$awal, $akhir])
             ->when($request->shift, fn ($q, $v) => $q->where('shift', $v))
             ->when($request->user_id, fn ($q, $v) => $q->where('user_id', $v))
@@ -37,7 +40,7 @@ class RawatJalanController extends Controller
                 ->orWhere('no_rm', 'like', "%$v%")));
 
         // Tanpa paginate: tabel, total, dan export Excel memakai seluruh data pada periode terpilih
-        $data = $filter(KunjunganRawatJalan::with(['pasien:id,no_rm,nama', 'user:id,username', 'poliklinik']))
+        $data = $filter(KunjunganRawatJalan::with(['pasien:id,no_rm,nama', 'user:id,username,nip', 'poliklinik']))
             ->orderByDesc('tanggal_pelayanan')->orderByDesc('id')
             ->get();
 
@@ -46,6 +49,7 @@ class RawatJalanController extends Controller
         return Inertia::render('Transaksi/RawatJalan/Index', [
             'data'       => $data,
             'total'      => $total,
+            'status'     => $status,
             'poliklinik' => Poliklinik::orderBy('poliklinik')->get(),
             'petugas'    => User::orderBy('username')->get(['id', 'username', 'nip']),
         ]);
@@ -58,9 +62,11 @@ class RawatJalanController extends Controller
 
     public function store(Request $request)
     {
-        $this->simpan($request->validate($this->rules()));
+        $data = $request->validate($this->rules());
+        $this->simpan($data);   // update: $this->simpan($data, $rawatJalan);
 
-        return redirect()->route('rawat-jalan.index')->with('success', 'Data rawat jalan disimpan.');
+        return redirect()->route('rawat-jalan.index', ['status' => $data['status_pembayaran']])
+            ->with('success', 'Data rawat jalan disimpan.');
     }
 
     public function edit(KunjunganRawatJalan $rawatJalan)
@@ -70,9 +76,11 @@ class RawatJalanController extends Controller
 
     public function update(Request $request, KunjunganRawatJalan $rawatJalan)
     {
-        $this->simpan($request->validate($this->rules()), $rawatJalan);
+        $data = $request->validate($this->rules());
+        $this->simpan($data, $rawatJalan);   // <- kirim model supaya UPDATE, bukan create
 
-        return redirect()->route('rawat-jalan.index')->with('success', 'Data rawat jalan diperbarui.');
+        return redirect()->route('rawat-jalan.index', ['status' => $data['status_pembayaran']])
+            ->with('success', 'Data rawat jalan disimpan.');
     }
 
     public function destroy(KunjunganRawatJalan $rawatJalan)
@@ -90,6 +98,7 @@ class RawatJalanController extends Controller
             'poliklinik_id'     => ['required', 'exists:poliklinik,id'],
             'tanggal_pelayanan' => ['required', 'date'],
             'shift'             => ['required', 'in:pagi,siang,malam'],
+            'status_pembayaran' => ['required', 'in:umum_h2h,umum_cash,bpjs'],
         ] + $this->rulesBiaya(self::BIAYA);
     }
 
@@ -100,12 +109,12 @@ class RawatJalanController extends Controller
             $biaya  = $this->nilaiBiaya($data, self::BIAYA);
 
             $isi = [
-                // Create: user yang login. Edit: petugas asli tetap dipertahankan.
                 'user_id'           => $kunjungan?->user_id ?? auth()->id(),
                 'pasien_id'         => $pasien->id,
                 'poliklinik_id'     => $data['poliklinik_id'],
                 'tanggal_pelayanan' => $data['tanggal_pelayanan'],
                 'shift'             => $data['shift'],
+                'status_pembayaran' => $data['status_pembayaran'],   // <- INI yang hilang
             ] + $biaya + ['jumlah' => array_sum($biaya)];
 
             $kunjungan ? $kunjungan->update($isi) : KunjunganRawatJalan::create($isi);
@@ -117,6 +126,7 @@ class RawatJalanController extends Controller
         return [
             'kunjungan'  => $kunjungan,
             'poliklinik' => Poliklinik::orderBy('poliklinik')->get(),
+            'status' => in_array(request('status'), self::STATUS) ? request('status') : 'umum_h2h',
         ];
     }
 }

@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Head, Link, router } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayouts';
 import {
-  Search, Calendar, CalendarDays, ChevronDown, Download, Filter,
+  Search, Calendar, CalendarDays, ChevronDown, Download,
   User, X, Pencil, Trash2, Plus,
 } from 'lucide-react';
 import {
@@ -14,6 +14,7 @@ const today = toYMD(new Date());
 
 const num = (v) => Number(v) || 0;
 const fmt = (n) => (n ? n.toLocaleString('id-ID') : '');
+const fmtDash = (n) => (n ? n.toLocaleString('id-ID') : '-');
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
 
 const rangeOf = (period, cs, ce) => {
@@ -27,6 +28,20 @@ const SHIFT_BADGE = {
   pagi: 'bg-amber-100 text-amber-700',
   siang: 'bg-blue-100 text-blue-700',
   malam: 'bg-indigo-100 text-indigo-700',
+};
+
+// Urutan & label subtotal per shift (ubah label di sini jika ingin "SORE")
+const SHIFT_GROUPS = [
+  { key: 'pagi', label: 'JUMLAH PENDAPATAN PAGI' },
+  { key: 'siang', label: 'JUMLAH PENDAPATAN SIANG' },
+  { key: 'malam', label: 'JUMLAH PENDAPATAN MALAM' },
+];
+
+const sumRows = (list) => {
+  const t = {};
+  KEYS.forEach((k) => { t[k] = list.reduce((s, r) => s + r[k], 0); });
+  t.jumlah = list.reduce((s, r) => s + r.jumlah, 0);
+  return t;
 };
 
 function PeriodBtn({ label, active, onClick }) {
@@ -47,14 +62,14 @@ function PeriodBtn({ label, active, onClick }) {
 
 export default function IgdIndex({ data = [], petugas = [] }) {
   const [f, setF] = useState({
-    period: 'bulan', customStart: today, customEnd: today, shift: '', userId: '',
+    period: 'hari', customStart: today, customEnd: today, userId: '',
   });
   const [search, setSearch] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null);
 
   const { start: rangeStart, end: rangeEnd } = rangeOf(f.period, f.customStart, f.customEnd);
 
-  // Ubah filter → minta data ke server sesuai periode/shift/petugas
+  // Ubah filter → minta data ke server sesuai periode/petugas
   const apply = (patch = {}) => {
     const n = { ...f, ...patch };
     setF(n);
@@ -64,7 +79,6 @@ export default function IgdIndex({ data = [], petugas = [] }) {
       {
         tanggal_awal: start,
         tanggal_akhir: end,
-        shift: n.shift || undefined,
         user_id: n.userId || undefined,
       },
       { preserveState: true, preserveScroll: true, replace: true }
@@ -98,18 +112,23 @@ export default function IgdIndex({ data = [], petugas = [] }) {
       : rows.filter((r) => r.nama.toLowerCase().includes(q) || r.no_rm.includes(search));
   }, [rows, search]);
 
-  const totals = useMemo(() => {
-    const t = {};
-    KEYS.forEach((k) => { t[k] = filtered.reduce((s, r) => s + r[k], 0); });
-    t.jumlah = filtered.reduce((s, r) => s + r.jumlah, 0);
-    return t;
-  }, [filtered]);
+  // Kelompok per shift + subtotal (nomor urut dimulai dari 1 di tiap shift)
+  const groups = useMemo(
+    () =>
+      SHIFT_GROUPS.map((g) => {
+        const list = filtered.filter((r) => r.shift === g.key);
+        return { ...g, list, totals: sumRows(list) };
+      }),
+    [filtered]
+  );
 
-  const hasFilter = search !== '' || f.shift !== '' || f.userId !== '' || f.period !== 'bulan';
+  const totals = useMemo(() => sumRows(filtered), [filtered]);
+
+  const hasFilter = search !== '' || f.userId !== '' || f.period !== 'hari';
 
   const clearFilters = () => {
     setSearch('');
-    apply({ period: 'bulan', shift: '', userId: '' });
+    apply({ period: 'hari', userId: '' });
   };
 
   const handleDelete = () => {
@@ -125,6 +144,56 @@ export default function IgdIndex({ data = [], petugas = [] }) {
     'text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400';
   const selectCls =
     'pl-8 pr-8 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 appearance-none cursor-pointer';
+
+  const renderRow = (r, no, idx) => {
+    const rowBg = idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70';
+    const td = `border border-slate-200 px-2 py-1.5 text-right ${rowBg}`;
+    const tdC = `border border-slate-200 px-2 py-1.5 text-center ${rowBg}`;
+    const tdL = `border border-slate-200 px-2 py-1.5 text-left ${rowBg}`;
+    return (
+      <tr key={r.id} className="hover:bg-blue-50/40 transition-colors group">
+        <td className={`${tdC} font-medium text-slate-500`}>{no}</td>
+        <td className={`${tdC} whitespace-nowrap text-slate-700`}>{r.petugas}</td>
+        <td className={`${tdC} whitespace-nowrap text-slate-700`}>
+          {r.tanggal.split('-').reverse().join('/')}
+        </td>
+        <td className={tdC}>
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${SHIFT_BADGE[r.shift] ?? ''}`}>
+            {cap(r.shift)}
+          </span>
+        </td>
+        <td className={`${tdC} font-semibold text-[#0B5FE8]`}>{r.no_rm}</td>
+        <td className={`${tdL} font-semibold text-slate-800 whitespace-nowrap`}>{r.nama}</td>
+        {KEYS.map((k) => (
+          <td key={k} className={td}>{fmt(r[k])}</td>
+        ))}
+        <td className="border border-slate-200 px-2 py-1.5 text-right font-bold text-slate-800 bg-blue-50 group-hover:bg-blue-100 transition-colors">
+          {r.jumlah.toLocaleString('id-ID')}
+        </td>
+        <td className="border border-slate-200 px-2 py-1.5 text-center bg-white sticky right-0 shadow-[-4px_0_6px_-4px_rgba(0,0,0,0.08)]">
+          <div className="flex items-center justify-center gap-1">
+            <Link
+              href={`${BASE_URL}/${r.id}/edit`}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200/60 text-[10px] font-semibold transition-colors"
+              title="Edit transaksi"
+            >
+              <Pencil size={11} />
+              Edit
+            </Link>
+            <button
+              type="button"
+              onClick={() => setDeleteTarget({ id: r.id, nama: r.nama })}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 border border-red-200/60 text-[10px] font-semibold transition-colors"
+              title="Hapus transaksi"
+            >
+              <Trash2 size={11} />
+              Hapus
+            </button>
+          </div>
+        </td>
+      </tr>
+    );
+  };
 
   return (
     <AdminLayout title="IGD">
@@ -142,7 +211,7 @@ export default function IgdIndex({ data = [], petugas = [] }) {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => exportIgd({ rows: filtered, totals, rangeStart, rangeEnd, shift: f.shift })}
+              onClick={() => exportIgd({ rows: filtered, totals, rangeStart, rangeEnd, shift: '' })}
               disabled={filtered.length === 0}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-300 transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -223,17 +292,6 @@ export default function IgdIndex({ data = [], petugas = [] }) {
             </div>
 
             <div className="relative">
-              <Filter size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              <select value={f.shift} onChange={(e) => apply({ shift: e.target.value })} className={selectCls}>
-                <option value="">Semua Shift</option>
-                <option value="pagi">Shift Pagi</option>
-                <option value="siang">Shift Siang</option>
-                <option value="malam">Shift Malam</option>
-              </select>
-              <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-            </div>
-
-            <div className="relative">
               <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
               <select value={f.userId} onChange={(e) => apply({ userId: e.target.value })} className={selectCls}>
                 <option value="">Semua Petugas</option>
@@ -296,55 +354,27 @@ export default function IgdIndex({ data = [], petugas = [] }) {
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((r, idx) => {
-                    const rowBg = idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70';
-                    const td = `border border-slate-200 px-2 py-1.5 text-right ${rowBg}`;
-                    const tdC = `border border-slate-200 px-2 py-1.5 text-center ${rowBg}`;
-                    const tdL = `border border-slate-200 px-2 py-1.5 text-left ${rowBg}`;
-                    return (
-                      <tr key={r.id} className="hover:bg-blue-50/40 transition-colors group">
-                        <td className={`${tdC} font-medium text-slate-500`}>{idx + 1}</td>
-                        <td className={`${tdC} whitespace-nowrap text-slate-700`}>{r.petugas}</td>
-                        <td className={`${tdC} whitespace-nowrap text-slate-700`}>
-                          {r.tanggal.split('-').reverse().join('/')}
+                  groups.map((g) => (
+                    <React.Fragment key={g.key}>
+                      {g.list.map((r, i) => renderRow(r, i + 1, i))}
+
+                      {/* Subtotal per shift */}
+                      <tr className="bg-slate-200 text-slate-800 font-bold text-[11px]">
+                        <td colSpan={6} className="border border-slate-300 px-3 py-2 text-center tracking-wider">
+                          {g.label} ({g.list.length} pasien)
                         </td>
-                        <td className={tdC}>
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${SHIFT_BADGE[r.shift] ?? ''}`}>
-                            {cap(r.shift)}
-                          </span>
-                        </td>
-                        <td className={`${tdC} font-semibold text-[#0B5FE8]`}>{r.no_rm}</td>
-                        <td className={`${tdL} font-semibold text-slate-800 whitespace-nowrap`}>{r.nama}</td>
                         {KEYS.map((k) => (
-                          <td key={k} className={td}>{fmt(r[k])}</td>
+                          <td key={k} className="border border-slate-300 px-2 py-2 text-right">
+                            {fmtDash(g.totals[k])}
+                          </td>
                         ))}
-                        <td className="border border-slate-200 px-2 py-1.5 text-right font-bold text-slate-800 bg-blue-50 group-hover:bg-blue-100 transition-colors">
-                          {r.jumlah.toLocaleString('id-ID')}
+                        <td className="border border-slate-300 px-2 py-2 text-right bg-blue-100 text-blue-900">
+                          {fmtDash(g.totals.jumlah)}
                         </td>
-                        <td className="border border-slate-200 px-2 py-1.5 text-center bg-white sticky right-0 shadow-[-4px_0_6px_-4px_rgba(0,0,0,0.08)]">
-                          <div className="flex items-center justify-center gap-1">
-                            <Link
-                              href={`${BASE_URL}/${r.id}/edit`}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200/60 text-[10px] font-semibold transition-colors"
-                              title="Edit transaksi"
-                            >
-                              <Pencil size={11} />
-                              Edit
-                            </Link>
-                            <button
-                              type="button"
-                              onClick={() => setDeleteTarget({ id: r.id, nama: r.nama })}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 border border-red-200/60 text-[10px] font-semibold transition-colors"
-                              title="Hapus transaksi"
-                            >
-                              <Trash2 size={11} />
-                              Hapus
-                            </button>
-                          </div>
-                        </td>
+                        <td className="border border-slate-300 px-2 py-2 bg-slate-200 sticky right-0"></td>
                       </tr>
-                    );
-                  })
+                    </React.Fragment>
+                  ))
                 )}
               </tbody>
 
@@ -352,7 +382,7 @@ export default function IgdIndex({ data = [], petugas = [] }) {
                 <tfoot>
                   <tr className="bg-[#0B2B4F] text-white font-bold text-[11px]">
                     <td colSpan={6} className="border border-blue-900 px-3 py-2 text-center tracking-wider text-blue-200">
-                      TOTAL ({filtered.length} pasien)
+                      JUMLAH PAGI, SIANG DAN MALAM ({filtered.length} pasien)
                     </td>
                     {KEYS.map((k) => (
                       <td key={k} className={tfTd}>{fmt(totals[k])}</td>
